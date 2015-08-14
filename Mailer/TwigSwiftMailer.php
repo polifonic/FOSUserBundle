@@ -11,6 +11,9 @@
 
 namespace FOS\UserBundle\Mailer;
 
+use Swift_Mailer;
+use Swift_Message;
+use Twig_Environment;
 use FOS\UserBundle\Model\UserInterface;
 use FOS\UserBundle\Mailer\MailerInterface;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
@@ -25,7 +28,7 @@ class TwigSwiftMailer implements MailerInterface
     protected $twig;
     protected $parameters;
 
-    public function __construct(\Swift_Mailer $mailer, UrlGeneratorInterface $router, \Twig_Environment $twig, array $parameters)
+    public function __construct(Swift_Mailer $mailer, UrlGeneratorInterface $router, Twig_Environment $twig, array $parameters)
     {
         $this->mailer = $mailer;
         $this->router = $router;
@@ -35,7 +38,7 @@ class TwigSwiftMailer implements MailerInterface
 
     public function sendConfirmationEmailMessage(UserInterface $user)
     {
-        $template = $this->parameters['template']['confirmation'];
+        $template = $this->getTemplate()('confirmation');
         $url = $this->router->generate('fos_user_registration_confirm', array('token' => $user->getConfirmationToken()), true);
 
         $context = array(
@@ -43,12 +46,12 @@ class TwigSwiftMailer implements MailerInterface
             'confirmationUrl' => $url
         );
 
-        $this->sendMessage($template, $context, $this->parameters['from_email']['confirmation'], $user->getEmail());
+        return $this->sendMessage($template, $context, $this->getFromEmail('confirmation'), $user->getEmail());
     }
 
     public function sendResettingEmailMessage(UserInterface $user)
     {
-        $template = $this->parameters['template']['resetting'];
+        $template = $this->getTemplate(['resetting']);
         $url = $this->router->generate('fos_user_resetting_reset', array('token' => $user->getConfirmationToken()), true);
 
         $context = array(
@@ -56,7 +59,7 @@ class TwigSwiftMailer implements MailerInterface
             'confirmationUrl' => $url
         );
 
-        $this->sendMessage($template, $context, $this->parameters['from_email']['resetting'], $user->getEmail());
+        return $this->sendMessage($template, $context, $this->getFromEmail(['resetting']), $user->getEmail());
     }
 
     /**
@@ -65,15 +68,30 @@ class TwigSwiftMailer implements MailerInterface
      * @param string $fromEmail
      * @param string $toEmail
      */
-    protected function sendMessage($templateName, $context, $fromEmail, $toEmail)
+    public function sendMessage($templateName, $context, $fromEmail, $toEmail)
     {
-        $context = $this->twig->mergeGlobals($context);
-        $template = $this->twig->loadTemplate($templateName);
+        $message = $this->prepareMessage($templateName, $context, $fromEmail, $toEmail);
+
+        return $this->getMailer()->send($message);
+    }
+
+    /**
+     * @param string $templateName
+     * @param array  $context
+     * @param string $fromEmail
+     * @param string $toEmail
+     */
+    protected function prepareMessage($templateName, $context, $fromEmail, $toEmail)
+    {
+        $twig = $this->getTwig();
+
+        $context = $twig->mergeGlobals($context);
+        $template = $twig->loadTemplate($templateName);
         $subject = $template->renderBlock('subject', $context);
         $textBody = $template->renderBlock('body_text', $context);
         $htmlBody = $template->renderBlock('body_html', $context);
 
-        $message = \Swift_Message::newInstance()
+        $message = Swift_Message::newInstance()
             ->setSubject($subject)
             ->setFrom($fromEmail)
             ->setTo($toEmail);
@@ -85,6 +103,26 @@ class TwigSwiftMailer implements MailerInterface
             $message->setBody($textBody);
         }
 
-        $this->mailer->send($message);
+        return $message;
+    }
+
+    protected function getTemplate($type)
+    {
+        return $this->parameters['template'][$type];
+    }
+
+    protected function getFromEmail($type)
+    {
+        return $this->parameters['from_email'][$type];
+    }
+
+    protected function getMailer()
+    {
+        return $this->mailer;
+    }
+
+    protected function getTwig()
+    {
+        return $this->twig;
     }
 }
